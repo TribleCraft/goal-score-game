@@ -1,13 +1,7 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import type { Cosmetic, ShotLane, ShotOutcome } from "../types";
-import { TARGETS } from "./physics";
-
-type AimPreview = {
-  x: number;
-  y: number;
-  power: number;
-};
+import { TARGETS, type PullPreview } from "./physics";
 
 type Flight = {
   outcome: ShotOutcome;
@@ -16,7 +10,7 @@ type Flight = {
 
 type TorwandSceneProps = {
   activeLane: ShotLane;
-  aimPreview: AimPreview | null;
+  pullPreview: PullPreview | null;
   flight: Flight | null;
   cosmetic: Cosmetic;
 };
@@ -24,6 +18,10 @@ type TorwandSceneProps = {
 const WALL_Z = -6;
 const WALL_FRONT_Z = -5.84;
 const BALL_START = new THREE.Vector3(0, -2.15, 3.6);
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
 
 function makeBoardTexture() {
   const canvas = document.createElement("canvas");
@@ -116,15 +114,14 @@ function makeBallTexture(cosmetic: Cosmetic) {
   return texture;
 }
 
-export function TorwandScene({ activeLane, aimPreview, flight, cosmetic }: TorwandSceneProps) {
+export function TorwandScene({ activeLane, pullPreview, flight, cosmetic }: TorwandSceneProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const sceneStateRef = useRef<{
     renderer: THREE.WebGLRenderer;
     scene: THREE.Scene;
     camera: THREE.PerspectiveCamera;
     ball: THREE.Mesh;
-    aimMarker: THREE.Mesh;
-    aimLine: THREE.Line;
+    tensionLine: THREE.Line;
     lowRing: THREE.Mesh;
     highRing: THREE.Mesh;
     lowHole: THREE.Mesh;
@@ -133,11 +130,11 @@ export function TorwandScene({ activeLane, aimPreview, flight, cosmetic }: Torwa
     fireLight: THREE.PointLight;
     raf: number;
   } | null>(null);
-  const propsRef = useRef({ activeLane, aimPreview, flight, cosmetic });
+  const propsRef = useRef({ activeLane, pullPreview, flight, cosmetic });
 
   useEffect(() => {
-    propsRef.current = { activeLane, aimPreview, flight, cosmetic };
-  }, [activeLane, aimPreview, flight, cosmetic]);
+    propsRef.current = { activeLane, pullPreview, flight, cosmetic };
+  }, [activeLane, pullPreview, flight, cosmetic]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -247,19 +244,12 @@ export function TorwandScene({ activeLane, aimPreview, flight, cosmetic }: Torwa
     highRing.position.set(TARGETS.high.x, TARGETS.high.y, WALL_FRONT_Z + 0.035);
     scene.add(highRing);
 
-    const aimMarker = new THREE.Mesh(
-      new THREE.TorusGeometry(0.18, 0.012, 8, 48),
-      new THREE.MeshBasicMaterial({ color: "#7fffd4", transparent: true, opacity: 0 }),
-    );
-    aimMarker.position.set(0, 0, WALL_FRONT_Z + 0.065);
-    scene.add(aimMarker);
-
-    const lineGeometry = new THREE.BufferGeometry().setFromPoints([BALL_START, new THREE.Vector3(0, 0, WALL_FRONT_Z)]);
-    const aimLine = new THREE.Line(
+    const lineGeometry = new THREE.BufferGeometry().setFromPoints([BALL_START, BALL_START]);
+    const tensionLine = new THREE.Line(
       lineGeometry,
       new THREE.LineBasicMaterial({ color: "#7fffd4", transparent: true, opacity: 0 }),
     );
-    scene.add(aimLine);
+    scene.add(tensionLine);
 
     const ballMaterial = new THREE.MeshStandardMaterial({
       map: makeBallTexture(cosmetic) ?? undefined,
@@ -309,25 +299,33 @@ export function TorwandScene({ activeLane, aimPreview, flight, cosmetic }: Torwa
       state.highHole.position.set(TARGETS.high.x, TARGETS.high.y, WALL_FRONT_Z + (current.activeLane === "high" ? 0.018 : 0.012));
 
       const ringMaterial = (current.activeLane === "low" ? state.lowRing.material : state.highRing.material) as THREE.MeshBasicMaterial;
-      ringMaterial.color.set(current.aimPreview ? "#7fffd4" : "#f8f0b4");
+      ringMaterial.color.set(current.pullPreview ? "#7fffd4" : "#f8f0b4");
 
-      if (current.aimPreview && !current.flight) {
-        const aimMaterial = state.aimMarker.material as THREE.MeshBasicMaterial;
-        const lineMaterial = state.aimLine.material as THREE.LineBasicMaterial;
-        state.aimMarker.position.set(current.aimPreview.x, current.aimPreview.y, WALL_FRONT_Z + 0.07);
-        state.aimMarker.scale.setScalar(0.95 + current.aimPreview.power * 0.35);
-        aimMaterial.opacity = 0.9;
+      if (current.pullPreview && !current.flight) {
+        const lineMaterial = state.tensionLine.material as THREE.LineBasicMaterial;
+        const pulledBall = new THREE.Vector3(
+          clamp(current.pullPreview.offsetX * 2.2, -1.15, 1.15),
+          BALL_START.y + clamp(-current.pullPreview.offsetY * 0.9, -0.22, 0.42),
+          BALL_START.z + clamp(current.pullPreview.offsetY * 2.5 + current.pullPreview.charge * 0.5, -0.85, 1.45),
+        );
         lineMaterial.opacity = 0.55;
-        state.aimLine.geometry.setFromPoints([
-          BALL_START,
-          new THREE.Vector3(current.aimPreview.x, current.aimPreview.y, WALL_FRONT_Z),
-        ]);
+        state.tensionLine.geometry.setFromPoints([BALL_START, pulledBall]);
       } else {
-        (state.aimMarker.material as THREE.MeshBasicMaterial).opacity = 0;
-        (state.aimLine.material as THREE.LineBasicMaterial).opacity = 0;
+        (state.tensionLine.material as THREE.LineBasicMaterial).opacity = 0;
+        state.tensionLine.geometry.setFromPoints([BALL_START, BALL_START]);
       }
 
-      if (current.flight) {
+      if (current.pullPreview && !current.flight) {
+        const pulledBall = new THREE.Vector3(
+          clamp(current.pullPreview.offsetX * 2.2, -1.15, 1.15),
+          BALL_START.y + clamp(-current.pullPreview.offsetY * 0.9, -0.22, 0.42),
+          BALL_START.z + clamp(current.pullPreview.offsetY * 2.5 + current.pullPreview.charge * 0.5, -0.85, 1.45),
+        );
+        state.ball.position.lerp(pulledBall, 0.34);
+        state.ball.rotation.x -= 0.04 + current.pullPreview.speed * 0.02;
+        state.ball.rotation.y += current.pullPreview.offsetX * 0.04;
+      } else {
+        if (current.flight) {
         const progress = Math.min(1, (now - current.flight.startedAt) / 920);
         const eased = 1 - Math.pow(1 - progress, 3);
         const destination = new THREE.Vector3(
@@ -339,10 +337,11 @@ export function TorwandScene({ activeLane, aimPreview, flight, cosmetic }: Torwa
         state.ball.position.y += Math.sin(progress * Math.PI) * 1.05;
         state.ball.rotation.x -= 0.18 + current.flight.outcome.power * 0.08;
         state.ball.rotation.y += 0.11 + current.flight.outcome.curve * 0.08;
-      } else {
+        } else {
         state.ball.position.lerp(BALL_START, 0.14);
         state.ball.rotation.x -= 0.01;
         state.ball.rotation.y += 0.008;
+        }
       }
 
       state.fireLight.intensity = current.cosmetic === "fire" ? 1.8 + pulse * 0.6 : 0;
@@ -360,8 +359,7 @@ export function TorwandScene({ activeLane, aimPreview, flight, cosmetic }: Torwa
       scene,
       camera,
       ball,
-      aimMarker,
-      aimLine,
+      tensionLine,
       lowRing,
       highRing,
       lowHole,

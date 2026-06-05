@@ -12,7 +12,16 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TorwandScene } from "./game/TorwandScene";
-import { computeShotOutcome, getLaneForShot, isMeaningfulSwipe, TARGETS } from "./game/physics";
+import {
+  computePullPreview,
+  computeShotOutcome,
+  estimateReleaseVelocity,
+  getLaneForShot,
+  isMeaningfulPull,
+  TARGETS,
+  type DragSample,
+  type PullPreview,
+} from "./game/physics";
 import {
   loadBackend,
   saveProfile,
@@ -25,8 +34,8 @@ import { getCycleInfo } from "./utils/dateCycle";
 
 type GamePhase = "loading" | "ready" | "aiming" | "flying" | "completed" | "locked";
 
-function formatPower(power: number) {
-  return `${Math.round(power * 100)}%`;
+function formatPull(preview: PullPreview) {
+  return `${Math.round(preview.charge * 100)}% · ${Math.round(preview.speed * 1000)} px/s`;
 }
 
 function getScoreLabel(score: number) {
@@ -72,12 +81,12 @@ function getCosmeticLabel(cosmetic: Cosmetic) {
 export default function App() {
   const cycle = useMemo(() => getCycleInfo(), []);
   const stageRef = useRef<HTMLDivElement | null>(null);
-  const swipeRef = useRef<{ start: Point2; startedAt: number } | null>(null);
+  const pullRef = useRef<{ start: Point2; startedAt: number; samples: DragSample[] } | null>(null);
   const [backend, setBackend] = useState<BackendSnapshot | null>(null);
   const [phase, setPhase] = useState<GamePhase>("loading");
   const [displayNameDraft, setDisplayNameDraft] = useState("");
   const [shots, setShots] = useState<ShotOutcome[]>([]);
-  const [aimPreview, setAimPreview] = useState<ShotOutcome | null>(null);
+  const [pullPreview, setPullPreview] = useState<PullPreview | null>(null);
   const [flight, setFlight] = useState<{ outcome: ShotOutcome; startedAt: number } | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [notice, setNotice] = useState("Zieh vom Ball aus Richtung Torwand und lass los.");
@@ -102,7 +111,7 @@ export default function App() {
         setNotice(
           snapshot.todayRun
             ? "Heute ist deine Tagesrunde gespeichert. Morgen gibt es sechs neue Schuesse."
-            : "Zieh vom Ball aus Richtung Torwand und lass los.",
+            : "Zieh den Ball an, dann schnell Richtung Torwand loslassen.",
         );
       })
       .catch((error: unknown) => {
@@ -159,7 +168,7 @@ export default function App() {
     }
 
     setShots([]);
-    setAimPreview(null);
+    setPullPreview(null);
     setFlight(null);
     setPhase(locked ? "locked" : "ready");
     setNotice(locked ? "Die gespeicherte Tagesrunde bleibt aktiv." : "Runde zurueckgesetzt.");
@@ -223,60 +232,57 @@ export default function App() {
     }
 
     const point = pointFromEvent(event);
-    swipeRef.current = {
+    const now = performance.now();
+    pullRef.current = {
       start: point,
-      startedAt: performance.now(),
+      startedAt: now,
+      samples: [{ point, time: now }],
     };
     setPhase("aiming");
-    setNotice(`${TARGETS[activeLane].label}: Laenge ist Kraft, Winkel ist Richtung.`);
+    setNotice(`${TARGETS[activeLane].label}: Zieh auf, Release-Tempo zaehlt.`);
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!swipeRef.current || phase !== "aiming") {
+    if (!pullRef.current || phase !== "aiming") {
       return;
     }
 
     const end = pointFromEvent(event);
-    const preview = computeShotOutcome(
-      {
-        start: swipeRef.current.start,
-        end,
-        durationMs: Math.max(80, performance.now() - swipeRef.current.startedAt),
-      },
-      getViewport(),
-      activeShotIndex,
-    );
+    const now = performance.now();
+    pullRef.current.samples = [...pullRef.current.samples, { point: end, time: now }].slice(-10);
 
-    setAimPreview(preview);
+    setPullPreview(computePullPreview(pullRef.current.start, end, pullRef.current.samples, getViewport()));
   };
 
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    const swipe = swipeRef.current;
-    swipeRef.current = null;
+    const pull = pullRef.current;
+    pullRef.current = null;
 
-    if (!swipe || phase !== "aiming") {
+    if (!pull || phase !== "aiming") {
       return;
     }
 
     const end = pointFromEvent(event);
-    setAimPreview(null);
+    const now = performance.now();
+    const samples = [...pull.samples, { point: end, time: now }].slice(-10);
+    const releaseVelocity = estimateReleaseVelocity(samples);
+    setPullPreview(null);
 
-    if (!isMeaningfulSwipe(swipe.start, end)) {
+    const shotInput = {
+      start: pull.start,
+      end,
+      durationMs: Math.max(80, now - pull.startedAt),
+      releaseVelocity,
+    };
+
+    if (!isMeaningfulPull(shotInput)) {
       setPhase("ready");
-      setNotice("Swipe war zu kurz. Zieh etwas laenger Richtung Torwand.");
+      setNotice("Zu wenig Zug oder zu langsamer Release. Zieh an und lass schneller los.");
       return;
     }
 
-    const outcome = computeShotOutcome(
-      {
-        start: swipe.start,
-        end,
-        durationMs: Math.max(80, performance.now() - swipe.startedAt),
-      },
-      getViewport(),
-      activeShotIndex,
-    );
+    const outcome = computeShotOutcome(shotInput, getViewport(), activeShotIndex);
 
     setPhase("flying");
     setFlight({ outcome, startedAt: performance.now() });
@@ -299,13 +305,6 @@ export default function App() {
   };
 
   const activeCosmetic = currentProfile?.selectedCosmetic ?? "classic";
-  const previewForScene = aimPreview
-    ? {
-        x: aimPreview.landingX,
-        y: aimPreview.landingY,
-        power: aimPreview.power,
-      }
-    : null;
   const runSummary = backend?.todayRun ?? (shots.length === 6 ? null : undefined);
 
   return (
@@ -317,14 +316,14 @@ export default function App() {
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={() => {
-          swipeRef.current = null;
-          setAimPreview(null);
+          pullRef.current = null;
+          setPullPreview(null);
           setPhase(locked ? "locked" : "ready");
         }}
       >
         <TorwandScene
           activeLane={activeLane}
-          aimPreview={previewForScene}
+          pullPreview={pullPreview}
           flight={flight}
           cosmetic={activeCosmetic}
         />
@@ -358,7 +357,7 @@ export default function App() {
         <div className="bottom-status">
           <MousePointer2 size={18} />
           <span>{notice}</span>
-          {aimPreview ? <strong>{formatPower(aimPreview.power)}</strong> : null}
+          {pullPreview ? <strong>{formatPull(pullPreview)}</strong> : null}
         </div>
       </section>
 
@@ -395,7 +394,7 @@ export default function App() {
         </section>
 
         <section className="panel actions-panel">
-          <button type="button" className="primary-action" disabled={phase !== "ready"} onClick={() => setNotice("Zieh mit Finger oder Maus Richtung Ziel.")}>
+          <button type="button" className="primary-action" disabled={phase !== "ready"} onClick={() => setNotice("Ball anziehen und mit schnellem Release schiessen.")}>
             <Play size={18} />
             <span>{locked ? "Heute gespielt" : "Bereit"}</span>
           </button>
