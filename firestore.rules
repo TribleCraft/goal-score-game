@@ -1,0 +1,161 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function validString(value, maxLength) {
+      return value is string && value.size() > 0 && value.size() <= maxLength;
+    }
+
+    function validShot(shot, index) {
+      return shot.keys().hasOnly([
+          'index',
+          'lane',
+          'hit',
+          'landingX',
+          'landingY',
+          'distance',
+          'power',
+          'curve',
+          'createdAt'
+        ])
+        && shot.index == index
+        && shot.lane in ['low', 'high']
+        && shot.hit is bool
+        && shot.landingX is number
+        && shot.landingY is number
+        && shot.distance is number
+        && shot.power is number
+        && shot.curve is number
+        && shot.createdAt is number
+        && shot.landingX >= -4
+        && shot.landingX <= 4
+        && shot.landingY >= -3
+        && shot.landingY <= 4
+        && shot.distance >= 0
+        && shot.distance <= 10
+        && shot.power >= 0
+        && shot.power <= 2;
+    }
+
+    function validRun(uid, dayKey) {
+      return request.resource.data.keys().hasOnly([
+          'uid',
+          'displayName',
+          'dayKey',
+          'monthKey',
+          'score',
+          'shots',
+          'xpEarned',
+          'streak',
+          'completedAt',
+          'createdAt'
+        ])
+        && request.resource.data.uid == uid
+        && request.resource.data.dayKey == dayKey
+        && validString(request.resource.data.displayName, 24)
+        && validString(request.resource.data.monthKey, 7)
+        && request.resource.data.score is int
+        && request.resource.data.score >= 0
+        && request.resource.data.score <= 6
+        && request.resource.data.xpEarned is int
+        && request.resource.data.xpEarned >= 0
+        && request.resource.data.xpEarned <= 260
+        && request.resource.data.streak is int
+        && request.resource.data.streak >= 1
+        && request.resource.data.streak <= 400
+        && request.resource.data.completedAt is number
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.shots is list
+        && request.resource.data.shots.size() == 6
+        && validShot(request.resource.data.shots[0], 0)
+        && validShot(request.resource.data.shots[1], 1)
+        && validShot(request.resource.data.shots[2], 2)
+        && validShot(request.resource.data.shots[3], 3)
+        && validShot(request.resource.data.shots[4], 4)
+        && validShot(request.resource.data.shots[5], 5);
+    }
+
+    function validProfile(uid) {
+      return request.resource.data.keys().hasOnly([
+          'uid',
+          'displayName',
+          'xp',
+          'streak',
+          'lastRunDayKey',
+          'selectedCosmetic',
+          'updatedAt'
+        ])
+        && request.resource.data.uid == uid
+        && validString(request.resource.data.displayName, 24)
+        && request.resource.data.xp is int
+        && request.resource.data.xp >= 0
+        && request.resource.data.xp <= 100000
+        && request.resource.data.streak is int
+        && request.resource.data.streak >= 0
+        && request.resource.data.streak <= 400
+        && request.resource.data.selectedCosmetic in ['classic', 'fire', 'kit']
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    function validLeaderboardEntry(uid, monthKey) {
+      return request.resource.data.keys().hasOnly([
+          'uid',
+          'displayName',
+          'monthKey',
+          'totalHits',
+          'gamesPlayed',
+          'bestRound',
+          'xp',
+          'streak',
+          'updatedAt'
+        ])
+        && request.resource.data.uid == uid
+        && request.resource.data.monthKey == monthKey
+        && validString(request.resource.data.displayName, 24)
+        && request.resource.data.totalHits is int
+        && request.resource.data.totalHits >= 0
+        && request.resource.data.totalHits <= 186
+        && request.resource.data.gamesPlayed is int
+        && request.resource.data.gamesPlayed >= 0
+        && request.resource.data.gamesPlayed <= 31
+        && request.resource.data.bestRound is int
+        && request.resource.data.bestRound >= 0
+        && request.resource.data.bestRound <= 6
+        && request.resource.data.xp is int
+        && request.resource.data.xp >= 0
+        && request.resource.data.xp <= 100000
+        && request.resource.data.streak is int
+        && request.resource.data.streak >= 0
+        && request.resource.data.streak <= 400
+        && request.resource.data.updatedAt == request.time;
+    }
+
+    match /players/{uid} {
+      allow read: if isOwner(uid);
+      allow create, update: if isOwner(uid) && validProfile(uid);
+      allow delete: if false;
+
+      match /runs/{dayKey} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid)
+          && !exists(/databases/$(database)/documents/players/$(uid)/runs/$(dayKey))
+          && validRun(uid, dayKey);
+        allow update, delete: if false;
+      }
+    }
+
+    match /leaderboards/{monthKey}/entries/{uid} {
+      allow read: if true;
+      allow create, update: if isOwner(uid) && validLeaderboardEntry(uid, monthKey);
+      allow delete: if false;
+    }
+  }
+}
