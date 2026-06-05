@@ -93,9 +93,11 @@ export default function App() {
   const [notice, setNotice] = useState("Zieh in die gewuenschte Flugrichtung und lass schnell los.");
   const activeShotIndex = shots.length;
   const activeLane = getLaneForShot(Math.min(activeShotIndex, 5));
-  const score = shots.filter((shot) => shot.hit).length;
   const locked = phase === "locked" || Boolean(backend?.todayRun);
   const currentProfile = backend?.profile;
+  const savedRun = backend?.todayRun ?? null;
+  const displayScore = savedRun?.score ?? shots.filter((shot) => shot.hit).length;
+  const displayShotCount = savedRun ? 6 : Math.min(activeShotIndex + 1, 6);
 
   useEffect(() => {
     let cancelled = false;
@@ -205,8 +207,10 @@ export default function App() {
       setNotice(`${runScore}/6 Treffer gespeichert. Claim-Code: ${result.run.claimCode ?? "wird erstellt"}.`);
     } catch (error) {
       console.error(error);
+      const errorCode =
+        typeof error === "object" && error && "code" in error ? String(error.code) : "unbekannt";
       setPhase("locked");
-      setNotice("Diese Tagesrunde wurde bereits gespeichert.");
+      setNotice(`Speichern fehlgeschlagen: ${errorCode}.`);
     }
   };
 
@@ -344,11 +348,11 @@ export default function App() {
         <div className="score-strip" aria-live="polite">
           <div>
             <span className="metric-label">Treffer</span>
-            <strong>{score}/6</strong>
+            <strong>{displayScore}/6</strong>
           </div>
           <div>
             <span className="metric-label">Schuss</span>
-            <strong>{Math.min(activeShotIndex + 1, 6)}/6</strong>
+            <strong>{displayShotCount}/6</strong>
           </div>
           <div>
             <span className="metric-label">Ziel</span>

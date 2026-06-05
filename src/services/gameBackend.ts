@@ -9,8 +9,10 @@ import {
   runTransaction,
   serverTimestamp,
   setDoc,
+  updateDoc,
 } from "firebase/firestore";
 import type { DailyRun, LeaderboardEntry, PlayerProfile } from "../types";
+import { generateClaimCode } from "../utils/claimCode";
 import { calculateNextStreak, calculateXp } from "../utils/dateCycle";
 import { ensureAnonymousUser, getFirebaseClient, hasFirebaseConfig } from "./firebaseClient";
 import {
@@ -96,10 +98,21 @@ export async function loadBackend(dayKey: string): Promise<BackendSnapshot> {
 
     const profile = profileSnap.exists() ? (profileSnap.data() as PlayerProfile) : fallbackProfile;
 
+    let todayRun = runSnap.exists() ? (runSnap.data() as DailyRun) : null;
+
+    if (todayRun && !todayRun.claimCode) {
+      const claimCode = generateClaimCode();
+      await updateDoc(runRef, { claimCode });
+      todayRun = {
+        ...todayRun,
+        claimCode,
+      };
+    }
+
     return {
       mode: "firebase",
       profile,
-      todayRun: runSnap.exists() ? (runSnap.data() as DailyRun) : null,
+      todayRun,
     };
   } catch (error) {
     console.warn("Firebase startup failed, falling back to offline mode.", error);
@@ -170,11 +183,26 @@ export async function submitRun(run: DailyRun, profile: PlayerProfile, mode: "fi
       transaction.get(entryRef),
     ]);
 
+    const previousProfile = profileSnap.exists() ? (profileSnap.data() as PlayerProfile) : profile;
+
     if (existingRun.exists()) {
-      throw new Error("already_played_today");
+      let existing = existingRun.data() as DailyRun;
+
+      if (!existing.claimCode) {
+        const claimCode = generateClaimCode();
+        transaction.update(runRef, { claimCode });
+        existing = {
+          ...existing,
+          claimCode,
+        };
+      }
+
+      return {
+        profile: previousProfile,
+        run: existing,
+      };
     }
 
-    const previousProfile = profileSnap.exists() ? (profileSnap.data() as PlayerProfile) : profile;
     const previousEntry = entrySnap.exists() ? (entrySnap.data() as LeaderboardEntry) : null;
     const streak = calculateNextStreak(previousProfile.lastRunDayKey, cleanRun.dayKey, previousProfile.streak);
     const xpEarned = calculateXp(cleanRun.score, streak);
