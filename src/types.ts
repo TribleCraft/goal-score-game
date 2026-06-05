@@ -41,6 +41,7 @@ export type DailyRun = {
   displayName: string;
   dayKey: string;
   monthKey: string;
+  claimCode?: string;
   score: number;
   shots: ShotOutcome[];
   xpEarned: number;

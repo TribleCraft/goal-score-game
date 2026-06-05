@@ -364,6 +364,22 @@ input:disabled {
   color: #596070;
 }
 
+.result-panel code {
+  width: max-content;
+  margin-top: 6px;
+  border: 1px solid #161a21;
+  background: #161a21;
+  padding: 6px 8px;
+  color: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-weight: 900;
+}
+
+.result-panel small {
+  color: #596070;
+  line-height: 1.4;
+}
+
 @media (max-width: 980px) {
   .app-shell {
     grid-template-columns: 1fr;

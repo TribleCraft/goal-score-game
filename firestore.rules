@@ -51,6 +51,7 @@ service cloud.firestore {
           'displayName',
           'dayKey',
           'monthKey',
+          'claimCode',
           'score',
           'shots',
           'xpEarned',
@@ -62,6 +63,8 @@ service cloud.firestore {
         && request.resource.data.dayKey == dayKey
         && validString(request.resource.data.displayName, 24)
         && validString(request.resource.data.monthKey, 7)
+        && validString(request.resource.data.claimCode, 13)
+        && request.resource.data.claimCode.matches('ZDF-[A-Z2-9]{4}-[A-Z2-9]{4}')
         && request.resource.data.score is int
         && request.resource.data.score >= 0
         && request.resource.data.score <= 6

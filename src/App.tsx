@@ -30,6 +30,7 @@ import {
   type BackendSnapshot,
 } from "./services/gameBackend";
 import type { Cosmetic, DailyRun, LeaderboardEntry, Point2, ShotOutcome } from "./types";
+import { generateClaimCode } from "./utils/claimCode";
 import { getCycleInfo } from "./utils/dateCycle";
 
 type GamePhase = "loading" | "ready" | "aiming" | "flying" | "completed" | "locked";
@@ -185,6 +186,7 @@ export default function App() {
       displayName: displayNameDraft,
       dayKey: cycle.dayKey,
       monthKey: cycle.monthKey,
+      claimCode: generateClaimCode(),
       score: runScore,
       shots: nextShots,
       xpEarned: 0,
@@ -200,7 +202,7 @@ export default function App() {
         todayRun: result.run,
       });
       setPhase("locked");
-      setNotice(`${runScore}/6 Treffer gespeichert. ${result.run.xpEarned} XP fuer die Tagesrunde.`);
+      setNotice(`${runScore}/6 Treffer gespeichert. Claim-Code: ${result.run.claimCode ?? "wird erstellt"}.`);
     } catch (error) {
       console.error(error);
       setPhase("locked");
@@ -460,6 +462,12 @@ export default function App() {
           <section className="panel result-panel">
             <strong>{getScoreLabel(runSummary.score)}</strong>
             <span>{runSummary.score}/6 Treffer heute gespeichert.</span>
+            {runSummary.claimCode ? (
+              <>
+                <code>{runSummary.claimCode}</code>
+                <small>Diesen Code aufbewahren. ZDF kann damit den Gewinner mit der gespeicherten Runde abgleichen.</small>
+              </>
+            ) : null}
           </section>
         ) : null}
       </aside>
