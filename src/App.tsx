@@ -89,7 +89,7 @@ export default function App() {
   const [pullPreview, setPullPreview] = useState<PullPreview | null>(null);
   const [flight, setFlight] = useState<{ outcome: ShotOutcome; startedAt: number } | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
-  const [notice, setNotice] = useState("Zieh vom Ball aus Richtung Torwand und lass los.");
+  const [notice, setNotice] = useState("Zieh in die gewuenschte Flugrichtung und lass schnell los.");
   const activeShotIndex = shots.length;
   const activeLane = getLaneForShot(Math.min(activeShotIndex, 5));
   const score = shots.filter((shot) => shot.hit).length;
@@ -111,7 +111,7 @@ export default function App() {
         setNotice(
           snapshot.todayRun
             ? "Heute ist deine Tagesrunde gespeichert. Morgen gibt es sechs neue Schuesse."
-            : "Zieh den Ball an, dann schnell Richtung Torwand loslassen.",
+            : "Zieh in die gewuenschte Flugrichtung und lass schnell los.",
         );
       })
       .catch((error: unknown) => {
@@ -239,7 +239,7 @@ export default function App() {
       samples: [{ point, time: now }],
     };
     setPhase("aiming");
-    setNotice(`${TARGETS[activeLane].label}: Zieh auf, Release-Tempo zaehlt.`);
+    setNotice(`${TARGETS[activeLane].label}: Richtung ziehen, Tempo gibt Kraft und Effet.`);
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -278,7 +278,7 @@ export default function App() {
 
     if (!isMeaningfulPull(shotInput)) {
       setPhase("ready");
-      setNotice("Zu wenig Zug oder zu langsamer Release. Zieh an und lass schneller los.");
+      setNotice("Zu wenig Zug oder zu langsamer Release. Zieh klar in eine Richtung und lass schneller los.");
       return;
     }
 
@@ -394,7 +394,7 @@ export default function App() {
         </section>
 
         <section className="panel actions-panel">
-          <button type="button" className="primary-action" disabled={phase !== "ready"} onClick={() => setNotice("Ball anziehen und mit schnellem Release schiessen.")}>
+          <button type="button" className="primary-action" disabled={phase !== "ready"} onClick={() => setNotice("In Flugrichtung ziehen und mit schnellem Release schiessen.")}>
             <Play size={18} />
             <span>{locked ? "Heute gespielt" : "Bereit"}</span>
           </button>
